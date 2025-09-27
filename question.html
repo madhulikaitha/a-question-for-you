@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>❤️ Pixel Arcade</title>
+  <style>
+    :root{ --bg1:#0e0b16; --bg2:#1b1433; --ui:#2a1f4d; --accent:#ff6ec7; --heart:#ff5577; --good:#7ef7a7; --bad:#ff5c5c; --text:#f2e9ff; --yellow:#ffef5c; }
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,var(--bg1),var(--bg2));color:var(--text);font-family:'PressStart2P-Embedded', monospace; -webkit-font-smoothing:none; image-rendering: pixelated;}
+    *{box-sizing:border-box}
+
+    /* HUD */
+    .hud{ position:fixed; top:8px; left:8px; right:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; z-index:50; }
+    .chip{ background:#23183f; padding:6px 10px; border:2px solid #3b2a6b; box-shadow:0 0 0 4px #120c24 inset; font-size:12px }
+
+    #stage{ position:fixed; inset:0; overflow:hidden; }
+    #game{ position:absolute; inset:0; width:100vw; height:100vh; image-rendering:pixelated; }
+
+    /* Overlays */
+    .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:60; }
+    .overlay.show{ display:flex }
+    .panel{ width:min(92vw,480px); padding:16px; background:#2a1f4d; border:3px solid #3b2a6b; text-align:center }
+
+    /* Ask screen */
+    #ask{ position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:10px; z-index:55; text-align:center; padding:16px; background:linear-gradient(180deg,var(--bg1),var(--bg2)); }
+    #ask.show{ display:flex }
+    .ask-actions{ display:flex; gap:12px; }
+    .btn{ background:#23183f; color:var(--text); padding:10px 14px; border:3px solid #3b2a6b; cursor:pointer; }
+
+    .pixel{ image-rendering:pixelated; }
+    #catCanvas{ position:static; width:48px; height:48px; }
+
+    /* Endings */
+    #ending{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:18px; z-index:70; text-align:center; background:linear-gradient(180deg,var(--bg1),var(--bg2));}
+    #ending.show{ display:flex }
+    #endingText{ font-size:32px; font-weight:bold; color:var(--yellow); text-shadow:3px 3px #000; letter-spacing:1px; }
+  @font-face{ font-family:'PressStart2P-Embedded'; font-style:normal; font-weight:400; src:url(data:font/woff2;base64,d09GMgABAAAAAAb7ABAAAAAAA1gAAAbxAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABPUy8yAAABCAAAAGAAAAB8f1G0zGNERUYAAAFYAAAANAAAABgAAABmR1BPUwAAAagAAAB8AAAAj2xQf0+2R1NBQAABwgAAAAcAAAAIAAAAGJnYXNwAAAHmAAAAAwAAAAQAAAAbGdseWYAAAfwAAAAYAAAAGwAAABmaGVhZAAACEAAAAAcAAAAIAAAAHZoaGVhAAAIUAAAABAAAAAQAAAAEmhtdHgAAAh4AAAABAAAAAQAAAAIbG9jYQAACJgAAAAZAAAAHAAAAGhtYXhwAAAjAAAAAAwAAAAIAAAABm5hbWUAACTEAAAAKAAAADQAAAAmcG9zdAAAJZAAAAAUAAAAHgAAAHlwcmVwAAAmIAAAAQAAAAEAAAAA////) format('woff2'); font-display:swap; }
+    body{ font-family:'PressStart2P-Embedded', monospace; }
+  </style></head>
+<body>
+  <div id="stage"><canvas id="game"></canvas></div>
+
+  <div class="hud">
+    <div id="progress" class="chip">1/3 ❤</div>
+    <div id="instruction" class="chip">Catch all the hearts!</div>
+  </div>
+
+  <div id="retry" class="overlay"><div class="panel"><h3>ah! my heart fell 💗 try again?</h3><button class="btn" id="retryBtn">one more go!</button></div></div>
+  <div id="scold" class="overlay"><div class="panel"><h2>HOW COULD YOU?!</h2></div></div>
+
+  <!-- Ask screen -->
+  <section id="ask">
+    <canvas id="catCanvas" width="24" height="24" class="pixel" style="margin-bottom:4px;"></canvas>
+    <div style="font-size:18px">👉👈</div>
+    <h2 style="margin:4px 0;">Will you be my boyfriend?</h2>
+    <div class="ask-actions">
+      <button class="btn" id="yesBtn">Yes</button>
+      <button class="btn" id="noBtn">No</button>
+    </div>
+  </section>
+
+  <!-- Endings -->
+  <section id="ending">
+    <div id="endingText"></div>
+    <div id="endingStage" style="position:relative; width:100vw; height:56vh; display:flex; align-items:center; justify-content:center;"></div>
+  </section>
+
+  <script>
+  // ===== UTIL =====
+  const $ = s=>document.querySelector(s);
+  const canvas = $('#game'); const ctx = canvas.getContext('2d');
+  let W=innerWidth, H=innerHeight, DPR=Math.max(devicePixelRatio||1,1);
+  function resize(){ W=innerWidth; H=innerHeight; canvas.width=Math.floor(W*DPR); canvas.height=Math.floor(H*DPR); canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.imageSmoothingEnabled=false; }
+  addEventListener('resize', resize); resize();
+  const progressEl = $('#progress'); const instructionEl = $('#instruction');
+  function sfx(freq=660,time=0.06){ try{ const ac=sfx.ac||(sfx.ac=new (window.AudioContext||window.webkitAudioContext)()); const o=ac.createOscillator(); const g=ac.createGain(); o.connect(g); g.connect(ac.destination); o.type='square'; o.frequency.value=freq; g.gain.value=0.08; const now=ac.currentTime; o.start(now); o.stop(now+time); g.gain.exponentialRampToValueAtTime(0.0001, now+time);}catch(e){} }
+  function buzz(m){ if('vibrate' in navigator) navigator.vibrate(m); }
+  let pointerX=W/2, pointerY=H-80, dragging=false; function getPoint(e){ if(e.touches&&e.touches[0]) return {x:e.touches[0].clientX,y:e.touches[0].clientY}; return {x:e.clientX,y:e.clientY}; }
+  function onDown(e){ dragging=true; const pt=getPoint(e); pointerX=pt.x; pointerY=pt.y; }
+  function onMove(e){ if(!dragging) return; const pt=getPoint(e); pointerX=pt.x; pointerY=pt.y; }
+  function onUp(){ dragging=false; }
+  canvas.addEventListener('touchstart', onDown, {passive:true}); canvas.addEventListener('touchmove', onMove, {passive:true}); canvas.addEventListener('touchend', onUp);
+  canvas.addEventListener('mousedown', onDown); addEventListener('mousemove', onMove); addEventListener('mouseup', onUp);
+
+  // ==== Offline bitmap pixel font (Press-Start style) & helpers ====
+  const PIXEL_FONT=(function(){
+    const G={}; const D=(ch,rows)=>G[ch]=rows.map(r=>r.replace(/[^#]/g,'0').replace(/#/g,'1'));
+    // A-Z
+    D('A',[".##.","#..#","#..#","####","#..#","#..#","....","...."]);
+    D('B',["###.","#..#","###.","#..#","#..#","###.","....","...."]);
+    D('C',[".###","#...","#...","#...","#...",".###","....","...."]);
+    D('D',["###.","#..#","#..#","#..#","#..#","###.","....","...."]);
+    D('E',["####","#...","###.","#...","#...","####","....","...."]);
+    D('F',["####","#...","###.","#...","#...","#...","....","...."]);
+    D('G',[".###","#...","#...","#.##","#..#",".###","....","...."]);
+    D('H',["#..#","#..#","####","#..#","#..#","#..#","....","...."]);
+    D('I',["###",".#.",".#.",".#.",".#.","###","...","..."]);
+    D('J',[".###","..#.","..#.","..#.","#.#.",".##.","....","...."]);
+    D('K',["#..#","#.#.","##..","#.#.","#.#.","#..#","....","...."]);
+    D('L',["#...","#...","#...","#...","#...","####","....","...."]);
+    D('M',["#..#","####","#..#","#..#","#..#","#..#","....","...."]);
+    D('N',["#..#","##.#","#.##","#..#","#..#","#..#","....","...."]);
+    D('O',[".##.","#..#","#..#","#..#","#..#",".##.","....","...."]);
+    D('P',["###.","#..#","#..#","###.","#...","#...","....","...."]);
+    D('Q',[".##.","#..#","#..#","#..#","#.##",".####","....","...."]);
+    D('R',["###.","#..#","#..#","###.","#.#.","#..#","....","...."]);
+    D('S',[".###","#...",".##.","...#","...#","###.","....","...."]);
+    D('T',["####",".#..",".#..",".#..",".#..",".#..","....","...."]);
+    D('U',["#..#","#..#","#..#","#..#","#..#",".##.","....","...."]);
+    D('V',["#..#","#..#","#..#","#..#",".#.#","..#.","....","...."]);
+    D('W',["#..#","#..#","#..#","#..#","####","#..#","....","...."]);
+    D('X',["#..#",".#.#","..#.","..#.",".#.#","#..#","....","...."]);
+    D('Y',["#..#","#..#",".##.","..#.","..#.","..#.","....","...."]);
+    D('Z',["####","...#","..#.",".#..","#...","####","....","...."]);
+    // digits
+    D('0',[".##.","#..#","#..#","#..#","#..#",".##.","....","...."]);
+    D('1',["..#.",".##.","..#.","..#.","..#.",".###","....","...."]);
+    D('2',[".##.","#..#","...#","..#.",".#..","####","....","...."]);
+    D('3',["###.","...#",".##.","...#","...#","###.","....","...."]);
+    D('4',["#..#","#..#","####","...#","...#","...#","....","...."]);
+    D('5',["####","#...","###.","...#","...#","###.","....","...."]);
+    D('6',[".###","#...","###.","#..#","#..#",".##.","....","...."]);
+    D('7',["####","...#","..#.",".#..","#...","#...","....","...."]);
+    D('8',[".##.","#..#",".##.","#..#","#..#",".##.","....","...."]);
+    D('9',[".##.","#..#","#..#",".###","...#",".##.","....","...."]);
+    // punctuation
+    D(' ',["....","....","....","....","....","....","....","...."]);
+    D('!', [".#.",".#.",".#.",".#.",".#.","...",".#.","..."]);
+    D('.', ["...","...","...","...","...",".#.",".#.","..."]);
+    D(',', ["...","...","...","...","...",".#.",".#.","#.."]);
+    D('-', ["...","...","...","###","...","...","...","..."]);
+    D(':', ["...",".#.","...","...",".#.","...","...","..."]);
+    return G;
+  })();
+  function drawPixelText(k,text,x,y,scale=2,color='#f2e9ff'){
+    const s=scale, gap=s; let cx=x; const up=(text+"").toUpperCase();
+    k.save(); k.imageSmoothingEnabled=false; k.fillStyle=color;
+    for(const ch of up){ const g=PIXEL_FONT[ch]||PIXEL_FONT[' ']; for(let r=0;r<g.length;r++){ for(let c=0;c<g[r].length;c++){ if(g[r][c]==='1') k.fillRect(Math.floor(cx+c*s), Math.floor(y+r*s), s, s); } } cx += (g[0]?.length||4)*s + gap; }
+    k.restore();
+  }
+  function setInstructionPixel(text){ instructionEl.innerHTML=''; const c=document.createElement('canvas'); c.width=320; c.height=28; c.className='pixel'; c.style.width='320px'; c.style.height='28px'; const k=c.getContext('2d'); drawPixelText(k,text,4,6,2,'#f2e9ff'); instructionEl.appendChild(c); }
+
+  // ===== SCENES =====
+  let scene='g1'; let lastTime=performance.now();
+  function setScene(s){
+    scene=s; lastTime=performance.now();
+    if(s==='g1'){ setInstructionPixel('CATCH ALL THE HEARTS!'); progressEl.textContent='1/3 ❤'; resetG1(); }
+    if(s==='g2'){ setInstructionPixel('CATCH EVERY YES! TAP TO SHOOT ❤'); progressEl.textContent='2/3 ❤'; resetG2(); }
+    if(s==='g3'){ setInstructionPixel('DRAG PIECES TO MAKE I ❤ U'); progressEl.textContent='3/3 ❤'; resetG3(); }
+  }
+
+  // ===== COMMON DRAW =====
+  const heartMap=['01100110','11111111','11111111','01111110','00111100','00011000','00000000'];
+  function drawHeart(x,y,scale){ const s=scale; ctx.fillStyle='#ff5577'; for(let r=0;r<heartMap.length;r++){ for(let c=0;c<heartMap[r].length;c++){ if(heartMap[r][c]==='1'){ ctx.fillRect(Math.floor(x+c*s), Math.floor(y+r*s), s, s); } } } }
+  function drawPixelHeartCtx(k,x,y,scale){ const s=scale||1; k.fillStyle='#ff5577'; for(let r=0;r<heartMap.length;r++){ for(let c=0;c<heartMap[r].length;c++){ if(heartMap[r][c]==='1') k.fillRect(Math.floor(x+c*s), Math.floor(y+r*s), s, s); } } }
+  function drawBasket(x,y,w,h){ ctx.fillStyle='#7ef7a7'; const px=2; for(let i=0;i<w;i+=px){ ctx.fillRect(Math.floor(x+i), Math.floor(y), px-1, 2);} ctx.fillRect(Math.floor(x), Math.floor(y+2), Math.floor(w), 8); ctx.fillStyle='#1d9d6f'; ctx.fillRect(Math.floor(x), Math.floor(y+10), Math.floor(w), 8); }
+  function lerp(a,b,t){ return a+(b-a)*Math.min(1,Math.max(0,t)); }
+
+  // ===== GAME 1: Catch Hearts (any miss -> retry) =====
+  const G1={ hearts:[], lastSpawn:0, target:12, caught:0, start:0, spawnBase:900, spawnMin:500, speedMin:180, speedMax:380, missed:false };
+  const basket={ x:W/2, y:H-70, w:Math.max(60, W*0.22), h:20 };
+  function resetG1(){ G1.hearts.length=0; G1.lastSpawn=0; G1.caught=0; G1.start=performance.now(); G1.missed=false; basket.x=W/2; basket.y=H-70; basket.w=Math.max(60,W*0.22); }
+  function spawnHeart(now){ const elapsed=now-G1.start; const every=lerp(G1.spawnBase,G1.spawnMin, elapsed/20000); if(now-G1.lastSpawn>every){ const v=lerp(G1.speedMin,G1.speedMax, elapsed/20000)/60; G1.hearts.push({x:Math.random()*(W-40)+20,y:-20,v,size:3}); G1.lastSpawn=now; } }
+  function updateG1(dt,now){
+    ctx.clearRect(0,0,canvas.width,canvas.height); ctx.save(); ctx.scale(DPR,DPR);
+    /* HUD shows instructions now (removed canvas text) */
+    basket.x += (pointerX - basket.x - basket.w/2)*0.25; basket.y=H-70; drawBasket(basket.x, basket.y, basket.w, basket.h);
+    spawnHeart(now);
+    for(let i=G1.hearts.length-1;i>=0;i--){ const h=G1.hearts[i]; h.y += h.v*dt; drawHeart(h.x,h.y,h.size);
+      if(h.y>basket.y-12 && h.x>basket.x && h.x<basket.x+basket.w){ G1.hearts.splice(i,1); G1.caught++; sfx(800); buzz(20); }
+      else if(h.y>H+20){ G1.missed=true; G1.hearts.splice(i,1); }
+    }
+    ctx.restore();
+    if(G1.missed){ $('#retry').classList.add('show'); scene='g1wait'; return; }
+    if(G1.caught>=G1.target){ setScene('g2'); }
+  }
+  $('#retryBtn').onclick=()=>{ $('#retry').classList.remove('show'); resetG1(); setScene('g1'); };
+
+  // ===== GAME 2: YES Invaders (slightly sped up from previous, but still easy) =====
+  const G2={ enemies:[], start:0, cols:5, rows:3, dir:1, speed:26, drop:9, shots:[], width:28, height:20 };
+  const ship={ x:0,y:0,w:34,h:18,cooldown:0 };
+  function resetG2(){ G2.enemies=[]; G2.shots=[]; G2.start=performance.now(); G2.dir=1; G2.speed=26; const marginX=24, marginY=50, gapX=Math.min(60,W/(G2.cols+1)), gapY=34; for(let r=0;r<G2.rows;r++){ for(let c=0;c<G2.cols;c++){ G2.enemies.push({alive:true,x:marginX+c*gapX+40,y:marginY+r*gapY+40}); } } ship.x=W/2; ship.y=H-72; ship.cooldown=0; }
+  function drawShip(){ ctx.fillStyle='#7ef7a7'; ctx.fillRect(Math.floor(ship.x-17), Math.floor(ship.y-9), 34, 18); ctx.fillStyle='#1d9d6f'; ctx.fillRect(Math.floor(ship.x-8), Math.floor(ship.y-5), 16, 6); }
+  function drawInvader(e){ ctx.fillStyle='#7ef7a7'; ctx.fillRect(Math.floor(e.x-G2.width/2), Math.floor(e.y-G2.height/2), G2.width, G2.height); ctx.fillStyle='#220b0b'; ctx.font='12px "PressStart2P-Embedded", monospace'; ctx.fillText('YES', Math.floor(e.x-12), Math.floor(e.y+5)); }
+  function shoot(){ if(ship.cooldown>0) return; ship.cooldown=140; sfx(720,.05); buzz(10); G2.shots.push({x:ship.x,y:ship.y-12,v:-340}); }
+  canvas.addEventListener('touchstart', ()=>{ if(scene==='g2') shoot(); }, {passive:true}); canvas.addEventListener('mousedown', ()=>{ if(scene==='g2') shoot(); });
+  function updateG2(dt){
+    ctx.clearRect(0,0,canvas.width,canvas.height); ctx.save(); ctx.scale(DPR,DPR);
+    /* HUD shows instructions now (removed canvas text) */
+    ship.x += (pointerX - ship.x) * 0.30; ship.y=H-72; drawShip();
+    let hitEdge=false; for(const e of G2.enemies){ if(!e.alive) continue; e.x += G2.dir*(G2.speed*(dt/60)); if(e.x<16||e.x>W-16) hitEdge=true; }
+    if(hitEdge){ G2.dir*=-1; for(const e of G2.enemies){ if(e.alive) e.y += G2.drop; } G2.speed = Math.min(72, G2.speed + 3); }
+    let active=0; for(const e of G2.enemies){ if(!e.alive) continue; active++; drawInvader(e); if(e.y > H - 40){ $('#scold').classList.add('show'); setTimeout(()=>{ $('#scold').classList.remove('show'); resetG1(); setScene('g1'); },1200); ctx.restore(); return; } }
+    ship.cooldown=Math.max(0, ship.cooldown - dt*1000/60);
+    for(let i=G2.shots.length-1;i>=0;i--){ const s=G2.shots[i]; s.y += (s.v*(dt/60)); drawHeart(s.x-6,s.y-6,3); for(const e of G2.enemies){ if(!e.alive) continue; if(Math.abs(e.x-s.x)<(G2.width/2) && Math.abs(e.y-s.y)<(G2.height/2)){ e.alive=false; G2.shots.splice(i,1); sfx(880,.06); buzz(15); break; } } if(s.y<-20){ G2.shots.splice(i,1);} }
+    ctx.restore(); if(active===0){ setScene('g3'); }
+  }
+
+  // ===== GAME 3: Assemble I ❤ U (drag & snap) =====
+  const G3={ pieces:[], slots:[], done:false }; let draggingId=null;
+  function resetG3(){ G3.done=false; G3.pieces=[ {id:'I',x:W*0.2,y:H*0.5,w:24,h:40,held:false}, {id:'H',x:W*0.5,y:H*0.48,w:24,h:24,heart:true,held:false}, {id:'U',x:W*0.75,y:H*0.52,w:26,h:40,held:false} ]; const midX=W*0.5, gap=60; G3.slots=[ {id:'I',x:midX-gap-30,y:H*0.35}, {id:'H',x:midX-12,y:H*0.37}, {id:'U',x:midX+gap,y:H*0.35} ]; }
+  function drawPixelI(x,y){ ctx.fillStyle='#7ef7a7'; const w=12,h=40; ctx.fillRect(Math.floor(x-w/2), Math.floor(y-h/2), w, h); }
+  function drawPixelU(x,y){ ctx.fillStyle='#7ef7a7'; const w=26,h=40; ctx.fillRect(Math.floor(x-w/2), Math.floor(y-h/2), 8, h); ctx.fillRect(Math.floor(x+w/2-8), Math.floor(y-h/2), 8, h); ctx.fillRect(Math.floor(x-w/2+8), Math.floor(y+h/2-8), w-16, 8); }
+  function drawSlot(s){ if(s.id==='I') drawPixelI(s.x,s.y); else if(s.id==='U') drawPixelU(s.x,s.y); else drawHeart(s.x-10,s.y-10,3); }
+  function tryGrab(e){ const p=getPoint(e); if(scene!=='g3') return; for(let i=G3.pieces.length-1;i>=0;i--){ const it=G3.pieces[i]; if(hit(p.x,p.y,it)){ draggingId=it.id; it.held=true; break; } } }
+  function drop(){ if(scene==='g3' && draggingId){ const it=G3.pieces.find(p=>p.id===draggingId); it.held=false; draggingId=null; checkSnap(it); } }
+  function hit(x,y,it){ return x>it.x-it.w/2 && x<it.x+it.w/2 && y>it.y-it.h/2 && y<it.y+it.h/2; }
+  function checkSnap(it){ const s=G3.slots.find(sl=>sl.id===it.id); if(!s) return; const dx=Math.abs(it.x-s.x), dy=Math.abs(it.y-s.y); if(dx<36 && dy<36){ it.x=s.x; it.y=s.y; sfx(880,.05); buzz(20); maybeDone(); } }
+  function maybeDone(){ for(const p of G3.pieces){ const s=G3.slots.find(sl=>sl.id===p.id); if(Math.abs(p.x-s.x)>2||Math.abs(p.y-s.y)>2) return; } G3.done=true; setTimeout(()=>showAsk(),400); }
+  canvas.addEventListener('touchstart', tryGrab, {passive:true}); canvas.addEventListener('mousedown', tryGrab); addEventListener('touchend', drop, {passive:true}); addEventListener('mouseup', drop);
+  function updateG3(){ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.save(); ctx.scale(DPR,DPR); ctx.globalAlpha=.25; for(const s of G3.slots){ drawSlot(s);} ctx.globalAlpha=1; if(draggingId){ const it=G3.pieces.find(p=>p.id===draggingId); it.x += (pointerX-it.x)*0.35; it.y += (pointerY-it.y)*0.35; } for(const p of G3.pieces){ if(p.id==='I') drawPixelI(p.x,p.y); else if(p.id==='U') drawPixelU(p.x,p.y); else drawHeart(p.x-10,p.y-10,3);} /* HUD shows instructions now (removed canvas text) */ ctx.restore(); }
+
+  // ===== ASK & END =====
+  function showAsk(){ document.getElementById('stage').style.display='none'; const gc=document.getElementById('game'); gc.getContext('2d').clearRect(0,0,gc.width,gc.height); scene='ask'; document.getElementById('ask').classList.add('show'); startCatAnim(); }
+  document.addEventListener('click', function(ev){ const id=ev.target && ev.target.id; if(id==='yesBtn') endYes(); if(id==='noBtn') endNo(); });
+
+  // === Pixel Cat animation (flower + connected tail + shy sway) ===
+  function startCatAnim(){
+    const cvs=document.getElementById('catCanvas'); const ctx2=cvs.getContext('2d');
+    function drawCat(ts){ ctx2.clearRect(0,0,24,24); const f=Math.floor(ts/120)%4; const faceDX=(f===0?-1:(f===2?1:0)); const wag=(f===1?1:(f===3?-1:0)); const OUT='#000', FUR='#fff', EAR='#f5b7b7', BLU='#ff7a8a';
+      ctx2.fillStyle=FUR; ctx2.fillRect((6+faceDX),4,12,12);
+      ctx2.fillStyle=OUT; ctx2.fillRect((6+faceDX),4,12,1); ctx2.fillRect((6+faceDX),(4+11),12,1);
+      ctx2.fillStyle=EAR; ctx2.fillRect((6+faceDX),2,3,3); ctx2.fillRect((15+faceDX),2,3,3);
+      ctx2.fillStyle='#ff6ec7'; ctx2.fillRect((16+faceDX),1,2,2); ctx2.fillStyle='#ffccf0'; ctx2.fillRect((15+faceDX),1,1,2);
+      ctx2.fillStyle=OUT; ctx2.fillRect((9+faceDX),8,2,1); ctx2.fillRect((13+faceDX),8,2,1);
+      ctx2.fillRect((11+faceDX),9,2,1);
+      ctx2.fillStyle=BLU; ctx2.fillRect((8+faceDX),10,2,1); ctx2.fillRect((13+faceDX),10,2,1);
+      ctx2.fillStyle=FUR; ctx2.fillRect(8,16,8,5);
+      ctx2.fillRect((16+wag),16,2,5); ctx2.fillRect(14,18,2,3);
+      ctx2.fillStyle=FUR; ctx2.fillRect(8,20,3,2); ctx2.fillRect(13,20,3,2);
+    }
+    function loop(ts){ drawCat(ts); if(scene==='ask') requestAnimationFrame(loop); }
+    requestAnimationFrame(loop);
+  }
+
+  // === Raptor sprites & animations ===
+  function drawRaptorChibi(ctx2, opts){
+    const o=Object.assign({x:0,y:0,blush:false,dead:false,cry:false,tongue:false,angle:0,scale:3.0},opts||{});
+    ctx2.save(); ctx2.translate(o.x, o.y); ctx2.scale(o.scale, o.scale); ctx2.rotate(o.angle*Math.PI/180);
+    const color='#9aa1a8';
+    ctx2.fillStyle=color; ctx2.strokeStyle='#000'; ctx2.lineWidth=1;
+    ctx2.beginPath(); ctx2.ellipse(24,14,6,6,0,0,Math.PI*2); ctx2.fill(); ctx2.stroke();
+    if(o.dead){ ctx2.strokeStyle='#000'; ctx2.beginPath(); ctx2.moveTo(22,12); ctx2.lineTo(24,14); ctx2.moveTo(24,12); ctx2.lineTo(22,14); ctx2.stroke(); }
+    else { ctx2.fillStyle='#000'; ctx2.fillRect(22,12,2,2); ctx2.fillStyle='#fff'; ctx2.fillRect(23,12,1,1); if(o.blush){ ctx2.fillStyle='#ff7a8a'; ctx2.fillRect(22,14,1,1); ctx2.fillRect(24,14,1,1); } }
+    ctx2.strokeStyle='#000'; ctx2.beginPath(); ctx2.moveTo(20,17); ctx2.lineTo(28,17); ctx2.stroke();
+    if(o.cry){ ctx2.strokeStyle='#66ccff'; ctx2.beginPath(); ctx2.moveTo(23,14); ctx2.lineTo(23,18); ctx2.moveTo(25,14); ctx2.lineTo(25,18); ctx2.stroke(); }
+    if(o.tongue){ ctx2.fillStyle='#ff6b6b'; ctx2.fillRect(24,18,2,2); }
+    ctx2.fillStyle=color; ctx2.strokeStyle='#000'; ctx2.beginPath(); ctx2.ellipse(15,19,5,3,0,0,Math.PI*2); ctx2.fill(); ctx2.stroke();
+    if(o.dead){ ctx2.fillRect(10,18,1,2); ctx2.fillRect(20,18,1,2); } else { ctx2.fillRect(12,18,1,2); ctx2.fillRect(16,18,1,2); }
+    ctx2.fillRect(12,22,1,3); ctx2.fillRect(16,22,1,3); ctx2.fillStyle='#000'; ctx2.fillRect(12,25,1,1); ctx2.fillRect(16,25,1,1);
+    ctx2.fillStyle=color; ctx2.beginPath(); ctx2.moveTo(2,18); ctx2.lineTo(10,18); ctx2.lineTo(10,20); ctx2.closePath(); ctx2.fill(); ctx2.stroke();
+    ctx2.restore();
+  }
+
+  function renderRaptor(isHappy){
+    const box=document.getElementById('endingStage'); box.innerHTML='';
+    const c=document.createElement('canvas'); c.width=box.clientWidth||320; c.height=box.clientHeight||260; c.className='pixel'; box.appendChild(c);
+    const k=c.getContext('2d'); k.imageSmoothingEnabled=false;
+
+    const SPR=96; // ~sprite height at scale 3.0
+    const xm=SPR*0.85, ym=SPR*0.85; // larger margins to avoid clipping
+
+    if(isHappy){
+      let t=0; const cx=c.width*0.5, cy=c.height*0.55; const rx=Math.max(16,(c.width-2*xm)/2); const ry=Math.max(16,(c.height-2*ym)/2);
+      function loop(){
+        k.clearRect(0,0,c.width,c.height);
+        const ang=t/20; // slightly slower
+        let x=cx + rx*Math.cos(ang); let y=cy + ry*Math.sin(ang);
+        x=Math.min(c.width-xm, Math.max(xm, x)); y=Math.min(c.height-ym, Math.max(ym, y));
+        for(let j=1;j<=3;j++) drawPixelHeartCtx(k, Math.floor(x-8*j), Math.floor(y+2*j), 1);
+        drawRaptorChibi(k,{x:Math.floor(x),y:Math.floor(y),blush:true,scale:3.0});
+        t+=1; requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    } else {
+      let phase=0, tick=0, y=ym, angle=0;
+      function loop(){
+        k.clearRect(0,0,c.width,c.height);
+        if(phase===0){ drawRaptorChibi(k,{x:c.width*0.5-16,y:y,cry:true,scale:3.0}); tick++; if(tick>30){ phase=1; tick=0; } }
+        else if(phase===1){ angle-=4; y=Math.min(y+2, c.height-ym); drawRaptorChibi(k,{x:c.width*0.5-16,y:y,cry:true,angle:angle,scale:3.0}); if(y>=c.height-ym){ phase=2; } }
+        else { drawRaptorChibi(k,{x:c.width*0.5-24,y:c.height-ym,dead:true,tongue:true,angle:-90,scale:3.0}); }
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    }
+  }
+
+  function endYes(){
+    // cheerful arpeggio
+    const seq=[880,1175,1480,1760]; seq.forEach((f,i)=>setTimeout(()=>sfx(f,0.08), i*90));
+    document.getElementById('stage').style.display='none';
+    document.getElementById('ask').classList.remove('show');
+    document.getElementById('ending').classList.add('show');
+    document.getElementById('endingText').textContent='💖 BOYFRIEND UNLOCKED! 💖';
+    renderRaptor(true);
+  }
+  function endNo(){
+    // sad descending tones
+    const seq=[660,440,330,220]; seq.forEach((f,i)=>setTimeout(()=>sfx(f,0.12), i*120));
+    document.getElementById('stage').style.display='none';
+    document.getElementById('ask').classList.remove('show');
+    document.getElementById('ending').classList.add('show');
+    document.getElementById('endingText').textContent="Critical hit… my tiny arms can't reach the tissues";
+    renderRaptor(false);
+  }
+
+  // ===== MAIN LOOP =====
+  function frame(ts){ const dt=Math.min(0.05,(ts-lastTime)/1000); lastTime=ts; if(scene==='g1') updateG1(dt*60,ts); else if(scene==='g2') updateG2(dt*60,ts); else if(scene==='g3') updateG3(dt*60,ts); requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+
+  // start fresh
+  document.getElementById('stage').style.display='';
+  document.getElementById('ask').classList.remove('show');
+  document.getElementById('ending').classList.remove('show');
+  setScene('g1');
+  </script>
+</body>
+</html>
